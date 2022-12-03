@@ -12,7 +12,9 @@ pub fn a() -> String {
 
 fn a_with_input(input: &str) -> i32 {
     enum Outcome {
-        WIN, LOSS, TIE
+        WIN,
+        LOSS,
+        TIE,
     }
 
     impl Outcome {
@@ -20,7 +22,7 @@ fn a_with_input(input: &str) -> i32 {
             match self {
                 Outcome::WIN => Outcome::LOSS,
                 Outcome::LOSS => Outcome::WIN,
-                Outcome::TIE => Outcome::TIE
+                Outcome::TIE => Outcome::TIE,
             }
         }
     }
@@ -33,21 +35,21 @@ fn a_with_input(input: &str) -> i32 {
                 "X" => Outcome::TIE,
                 "Y" => Outcome::LOSS,
                 "Z" => Outcome::WIN,
-                _ => unimplemented!()
+                _ => unimplemented!(),
             },
             "B" => match right {
                 "X" => Outcome::WIN,
                 "Y" => Outcome::TIE,
                 "Z" => Outcome::LOSS,
-                _ => unimplemented!()
+                _ => unimplemented!(),
             },
             "C" => match right {
                 "X" => Outcome::LOSS,
                 "Y" => Outcome::WIN,
                 "Z" => Outcome::TIE,
-                _ => unimplemented!()
+                _ => unimplemented!(),
             },
-            _ => unimplemented!()
+            _ => unimplemented!(),
         }
     }
 
@@ -75,7 +77,7 @@ fn a_with_input(input: &str) -> i32 {
             "X" => 1,
             "Y" => 2,
             "Z" => 3,
-            _ => panic!()
+            _ => panic!(),
         };
     }
 
@@ -92,11 +94,15 @@ pub fn b() -> String {
 
 fn b_with_input(input: &str) -> i32 {
     enum Outcome {
-        WIN, LOSS, TIE
+        WIN,
+        LOSS,
+        TIE,
     }
 
     enum Play {
-        ROCK, SCISSORS, PAPER
+        ROCK,
+        SCISSORS,
+        PAPER,
     }
 
     fn outcome_from_token(token: &str) -> Outcome {
@@ -104,7 +110,7 @@ fn b_with_input(input: &str) -> i32 {
             "X" => Outcome::LOSS,
             "Y" => Outcome::TIE,
             "Z" => Outcome::WIN,
-            _ => unimplemented!()
+            _ => unimplemented!(),
         }
     }
 
@@ -113,7 +119,7 @@ fn b_with_input(input: &str) -> i32 {
             match self {
                 Outcome::LOSS => 0,
                 Outcome::TIE => 3,
-                Outcome::WIN => 6
+                Outcome::WIN => 6,
             }
         }
     }
@@ -133,7 +139,7 @@ fn b_with_input(input: &str) -> i32 {
             "A" => Play::ROCK,
             "B" => Play::PAPER,
             "C" => Play::SCISSORS,
-            _ => panic!()
+            _ => panic!(),
         }
     }
 
@@ -148,12 +154,12 @@ fn b_with_input(input: &str) -> i32 {
                 Outcome::WIN => Play::ROCK,
                 Outcome::LOSS => Play::PAPER,
                 Outcome::TIE => Play::SCISSORS,
-            }
+            },
             Play::PAPER => match desired_outcome {
                 Outcome::WIN => Play::SCISSORS,
                 Outcome::LOSS => Play::ROCK,
-                Outcome::TIE => Play::PAPER
-            }
+                Outcome::TIE => Play::PAPER,
+            },
         }
     }
 
@@ -220,14 +226,14 @@ C Z";
 
     #[test]
     fn sample_2b_more() {
-        assert_eq!(b_with_input("A X"), 0+3); // lose -- 0 points; they play rock, so we play scissors, get 3 points
-        assert_eq!(b_with_input("A Y"), 3+1); // tie -- 3 points; they play rock, so we play rock, get 1 point
-        assert_eq!(b_with_input("A Z"), 6+2); // win -- 6 points; they play rock, so we play paper, get 2 points
-        assert_eq!(b_with_input("B X"), 0+1); // lose -- 0 points; they play paper, so we play rock, get 1 point
-        assert_eq!(b_with_input("B Y"), 3+2); // tie -- 3 points; they play paper, so we play paper, get 2 points
-        assert_eq!(b_with_input("B Z"), 6+3); // win -- 6 points; they play paper, so we play scissors, get 3 points
-        assert_eq!(b_with_input("C X"), 0+2); // lose -- 0 points; they play scissors, so we play paper, get 2 points
-        assert_eq!(b_with_input("C Y"), 3+3); // tie -- 3 points; they play scissors, so we play scissors, get 3 points
-        assert_eq!(b_with_input("C Z"), 6+1); // win -- 6 points; they play scissors, so we play rock, get 1 point
+        assert_eq!(b_with_input("A X"), 0 + 3); // lose -- 0 points; they play rock, so we play scissors, get 3 points
+        assert_eq!(b_with_input("A Y"), 3 + 1); // tie -- 3 points; they play rock, so we play rock, get 1 point
+        assert_eq!(b_with_input("A Z"), 6 + 2); // win -- 6 points; they play rock, so we play paper, get 2 points
+        assert_eq!(b_with_input("B X"), 0 + 1); // lose -- 0 points; they play paper, so we play rock, get 1 point
+        assert_eq!(b_with_input("B Y"), 3 + 2); // tie -- 3 points; they play paper, so we play paper, get 2 points
+        assert_eq!(b_with_input("B Z"), 6 + 3); // win -- 6 points; they play paper, so we play scissors, get 3 points
+        assert_eq!(b_with_input("C X"), 0 + 2); // lose -- 0 points; they play scissors, so we play paper, get 2 points
+        assert_eq!(b_with_input("C Y"), 3 + 3); // tie -- 3 points; they play scissors, so we play scissors, get 3 points
+        assert_eq!(b_with_input("C Z"), 6 + 1); // win -- 6 points; they play scissors, so we play rock, get 1 point
     }
 }
