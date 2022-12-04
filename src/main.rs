@@ -3,6 +3,7 @@ use std::env;
 mod day_01;
 mod day_02;
 mod day_03;
+mod day_04;
 
 fn main() -> Result<(), ()> {
     let mut args = env::args();
@@ -23,6 +24,9 @@ fn main() -> Result<(), ()> {
 
         "3a" => day_03::a(),
         "3b" => day_03::b(),
+
+        "4a" => day_04::a(),
+        "4b" => day_04::b(),
 
         other => {
             println!("Unknown day variant {:?}", other);
