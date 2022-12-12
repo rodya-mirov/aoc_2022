@@ -7,14 +7,190 @@ fn input() -> String {
 pub fn a() -> String {
     let contents = input();
 
-    // let val = a_with_input(&contents);
-    let val = a_parsed(&mut get_parsed_input());
+    let val = a_with_input(&contents);
 
     val.to_string()
 }
 
+mod parse {
+    use std::collections::VecDeque;
+
+    use nom::{
+        branch::alt,
+        bytes::complete::tag,
+        character::complete::{digit1, multispace0, multispace1},
+        combinator::{eof, map},
+        multi::{many0, separated_list1},
+        sequence::tuple,
+        IResult,
+    };
+
+    use super::{Arg, Monkey, Op, WorryAction};
+
+    fn parse_monkey_line(input: &str) -> IResult<&str, usize> {
+        let (out, val) = tuple((tag("Monkey "), digit1, tag(":"), multispace0))(input)?;
+        let (_, digits, _, _) = val;
+        let num: usize = digits.parse::<usize>().unwrap();
+        Ok((out, num))
+    }
+
+    fn parse_starting_items_line(input: &str) -> IResult<&str, VecDeque<u64>> {
+        let (out, val) = tuple((
+            tag("Starting items:"),
+            multispace0,
+            separated_list1(tag(", "), digit1),
+            multispace0,
+        ))(input)?;
+
+        let (_, _, items, _) = val;
+        let items = items
+            .iter()
+            .map(|tok| tok.parse::<u64>().unwrap())
+            .collect();
+        Ok((out, items))
+    }
+
+    fn parse_op(input: &str) -> IResult<&str, Op> {
+        let parse_add = map(tag("+"), |_| Op::Add);
+        let parse_mul = map(tag("*"), |_| Op::Mul);
+
+        alt((parse_add, parse_mul))(input)
+    }
+
+    fn parse_rhs(input: &str) -> IResult<&str, Arg> {
+        let parse_old = map(tag("old"), |_| Arg::Old);
+        let parse_num = map(digit1, |digits: &str| {
+            Arg::Num(digits.parse::<u64>().unwrap())
+        });
+
+        alt((parse_num, parse_old))(input)
+    }
+
+    fn operation_line(input: &str) -> IResult<&str, WorryAction> {
+        let (input, _) = multispace0(input)?;
+        let (input, _) = tag("Operation: new = old")(input)?;
+        let (input, _) = multispace1(input)?;
+        let (input, op) = parse_op(input)?;
+        let (input, _) = multispace1(input)?;
+        let (input, rhs) = parse_rhs(input)?;
+        let (input, _) = multispace0(input)?;
+
+        Ok((input, WorryAction { op, rhs }))
+    }
+
+    fn test_line(input: &str) -> IResult<&str, u64> {
+        let (out, val) =
+            tuple((tag("Test: divisible by"), multispace1, digit1, multispace0))(input)?;
+        let (_, _, digits, _) = val;
+        Ok((out, digits.parse::<u64>().unwrap()))
+    }
+
+    fn if_true_line(input: &str) -> IResult<&str, usize> {
+        let (out, val) = tuple((
+            multispace0,
+            tag("If true: throw to monkey"),
+            multispace1,
+            digit1,
+            multispace0,
+        ))(input)?;
+        let (_, _, _, digits, _) = val;
+        Ok((out, digits.parse::<usize>().unwrap()))
+    }
+
+    fn if_false_line(input: &str) -> IResult<&str, usize> {
+        // note that the if_false line sometimes has an extra newline at the end, and sometimes not
+        let (out, val) = tuple((
+            multispace0,
+            tag("If false: throw to monkey"),
+            multispace1,
+            digit1,
+            multispace0,
+        ))(input)?;
+        let (_, _, _, digits, _) = val;
+        Ok((out, digits.parse::<usize>().unwrap()))
+    }
+
+    fn parse_monkey(input: &str) -> IResult<&str, Monkey> {
+        let (out, val) = tuple((
+            parse_monkey_line,
+            parse_starting_items_line,
+            operation_line,
+            test_line,
+            if_true_line,
+            if_false_line,
+        ))(input)?;
+
+        let (idx, items, operation, div_test, if_true_goal, if_false_goal) = val;
+        Ok((
+            out,
+            Monkey {
+                idx,
+                items,
+                operation,
+                div_test,
+                if_true_goal,
+                if_false_goal,
+            },
+        ))
+    }
+
+    fn parse_helper(input: &str) -> IResult<&str, Vec<Monkey>> {
+        let (input, monkeys) = many0(parse_monkey)(input)?;
+        let (_, _) = eof(input)?;
+        Ok(("", monkeys))
+    }
+
+    pub(super) fn parse_input(input: &str) -> Vec<Monkey> {
+        // just error "handling" around the nom stuff
+        let (remaining, monkeys) = parse_helper(input).unwrap();
+        assert_eq!(remaining, "");
+        monkeys
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn parse_test_0() {
+            assert_eq!(parse_monkey_line("Monkey 0:").unwrap().1, 0);
+            assert_eq!(
+                parse_starting_items_line("Starting items: 79, 98")
+                    .unwrap()
+                    .1,
+                VecDeque::from(vec![79, 98])
+            );
+
+            let input = "Monkey 0:
+  Starting items: 79, 98
+  Operation: new = old * 19
+  Test: divisible by 23
+    If true: throw to monkey 2
+    If false: throw to monkey 3";
+
+            let (rem_input, actual) = parse_monkey(input).unwrap();
+            assert_eq!(rem_input, "");
+
+            let expected = Monkey {
+                idx: 0,
+                items: vec![79, 98].into(),
+                operation: WorryAction {
+                    op: Op::Mul,
+                    rhs: Arg::Num(19),
+                },
+                div_test: 23,
+                if_true_goal: 2,
+                if_false_goal: 3,
+            };
+
+            assert_eq!(actual, expected);
+        }
+    }
+}
+
 fn a_with_input(input: &str) -> usize {
-    unimplemented!()
+    let mut monkeys = parse::parse_input(input);
+    a_parsed(&mut monkeys)
 }
 
 fn a_parsed(monkeys: &mut [Monkey]) -> usize {
@@ -71,14 +247,14 @@ fn apply_op_a(old_val: u64, op: &WorryAction) -> u64 {
 pub fn b() -> String {
     let contents = input();
 
-    // let val = b_with_input(&contents);
-    let val = b_parsed(&mut get_parsed_input());
+    let val = b_with_input(&contents);
 
     val.to_string()
 }
 
 fn b_with_input(input: &str) -> usize {
-    unimplemented!()
+    let mut monkeys = parse::parse_input(input);
+    b_parsed(&mut monkeys)
 }
 
 fn b_parsed(monkeys: &mut [Monkey]) -> usize {
@@ -89,20 +265,8 @@ fn b_parsed(monkeys: &mut [Monkey]) -> usize {
 
     let combined_modulus: u64 = monkeys.iter().map(|m| m.div_test).product();
 
-    for i in 0..NUM_ROUNDS {
+    for _ in 0..NUM_ROUNDS {
         simulate_round_b(monkeys, &mut inspection_counts, combined_modulus);
-
-        let nice_i = i + 1;
-        if nice_i == 1 || nice_i == 20 || nice_i % 1000 == 0 {
-            println!("== After round {} ==", nice_i);
-            for monkey_idx in 0..monkeys.len() {
-                println!(
-                    "Monkey {} inspected items {} times.",
-                    monkey_idx, inspection_counts[monkey_idx]
-                );
-            }
-            println!();
-        }
     }
 
     // now we can compute the MONKEY BUSINESS
@@ -178,113 +342,6 @@ enum Arg {
     Num(u64),
 }
 
-// TODO: this is sort of cheating but ugh
-fn get_parsed_input() -> Vec<Monkey> {
-    let mut monkeys = Vec::new();
-
-    monkeys.push(Monkey {
-        idx: 0,
-        items: vec![80].into(),
-        operation: WorryAction {
-            op: Op::Mul,
-            rhs: arg(5),
-        },
-        div_test: 2,
-        if_true_goal: 4,
-        if_false_goal: 3,
-    });
-
-    monkeys.push(Monkey {
-        idx: 1,
-        items: vec![75, 83, 74].into(),
-        operation: WorryAction {
-            op: Op::Add,
-            rhs: arg(7),
-        },
-        div_test: 7,
-        if_true_goal: 5,
-        if_false_goal: 6,
-    });
-
-    monkeys.push(Monkey {
-        idx: 2,
-        items: vec![86, 67, 61, 96, 52, 63, 73].into(),
-        operation: WorryAction {
-            op: Op::Add,
-            rhs: arg(5),
-        },
-        div_test: 3,
-        if_true_goal: 7,
-        if_false_goal: 0,
-    });
-
-    monkeys.push(Monkey {
-        idx: 3,
-        items: vec![85, 83, 55, 85, 57, 70, 85, 52].into(),
-        operation: WorryAction {
-            op: Op::Add,
-            rhs: arg(8),
-        },
-        div_test: 17,
-        if_true_goal: 1,
-        if_false_goal: 5,
-    });
-
-    monkeys.push(Monkey {
-        idx: 4,
-        items: vec![67, 75, 91, 72, 89].into(),
-        operation: WorryAction {
-            op: Op::Add,
-            rhs: arg(4),
-        },
-        div_test: 11,
-        if_true_goal: 3,
-        if_false_goal: 1,
-    });
-
-    monkeys.push(Monkey {
-        idx: 5,
-        items: vec![66, 64, 68, 92, 68, 77].into(),
-        operation: WorryAction {
-            op: Op::Mul,
-            rhs: arg(2),
-        },
-        div_test: 19,
-        if_true_goal: 6,
-        if_false_goal: 2,
-    });
-
-    monkeys.push(Monkey {
-        idx: 6,
-        items: vec![97, 94, 79, 88].into(),
-        operation: WorryAction {
-            op: Op::Mul,
-            rhs: Arg::Old,
-        },
-        div_test: 5,
-        if_true_goal: 2,
-        if_false_goal: 7,
-    });
-
-    monkeys.push(Monkey {
-        idx: 7,
-        items: vec![77, 85].into(),
-        operation: WorryAction {
-            op: Op::Add,
-            rhs: arg(6),
-        },
-        div_test: 13,
-        if_true_goal: 4,
-        if_false_goal: 0,
-    });
-
-    monkeys
-}
-
-fn arg(num: u64) -> Arg {
-    Arg::Num(num)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,69 +376,15 @@ Monkey 3:
 
     #[test]
     fn sample_a() {
-        let mut input = sample_monkeys();
-        let actual = a_parsed(&mut input);
+        let input = SAMPLE_INPUT_STR;
+        let actual = a_with_input(input);
         assert_eq!(actual, 10605);
     }
 
     #[test]
     fn sample_b() {
-        let mut input = sample_monkeys();
-        let actual = b_parsed(&mut input);
+        let input = SAMPLE_INPUT_STR;
+        let actual = b_with_input(input);
         assert_eq!(actual, 2713310158);
-    }
-
-    fn sample_monkeys() -> Vec<Monkey> {
-        let mut monkeys = Vec::new();
-
-        monkeys.push(Monkey {
-            idx: 0,
-            items: vec![79, 98].into(),
-            operation: WorryAction {
-                op: Op::Mul,
-                rhs: arg(19),
-            },
-            div_test: 23,
-            if_true_goal: 2,
-            if_false_goal: 3,
-        });
-
-        monkeys.push(Monkey {
-            idx: 1,
-            items: vec![54, 65, 75, 74].into(),
-            operation: WorryAction {
-                op: Op::Add,
-                rhs: arg(6),
-            },
-            div_test: 19,
-            if_true_goal: 2,
-            if_false_goal: 0,
-        });
-
-        monkeys.push(Monkey {
-            idx: 2,
-            items: vec![79, 60, 97].into(),
-            operation: WorryAction {
-                op: Op::Mul,
-                rhs: Arg::Old,
-            },
-            div_test: 13,
-            if_true_goal: 1,
-            if_false_goal: 3,
-        });
-
-        monkeys.push(Monkey {
-            idx: 3,
-            items: vec![74].into(),
-            operation: WorryAction {
-                op: Op::Add,
-                rhs: arg(3),
-            },
-            div_test: 17,
-            if_true_goal: 0,
-            if_false_goal: 1,
-        });
-
-        monkeys
     }
 }
