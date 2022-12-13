@@ -1,4 +1,4 @@
-use std::collections::BinaryHeap;
+use std::collections::VecDeque;
 
 fn input() -> String {
     std::fs::read_to_string("input/input_12.txt").expect("Should be able to read the file")
@@ -51,18 +51,18 @@ fn b_with_input(input: &str) -> usize {
 /// Given a grid, return a Vec<Vec<usize>> where out[y][x] is the length of the shortest path
 /// from (x, y) to the end point
 fn dijkstra(grid: &Grid) -> Vec<Vec<usize>> {
-    use std::cmp::Reverse;
-
     let end = grid.end;
 
     let mut best_scores = vec![vec![usize::MAX; grid.width as usize]; grid.height as usize];
+    let mut seen = vec![vec![false; grid.width as usize]; grid.height as usize];
 
-    let mut to_process = BinaryHeap::new();
-    to_process.push((Reverse(0), end));
+    let mut to_process = VecDeque::new();
+    to_process.push_back((0, end));
 
-    while let Some((Reverse(path_length), pos)) = to_process.pop() {
-        if best_scores[pos.1 as usize][pos.0 as usize] > path_length {
+    while let Some((path_length, pos)) = to_process.pop_front() {
+        if !seen[pos.1 as usize][pos.0 as usize] {
             best_scores[pos.1 as usize][pos.0 as usize] = path_length;
+            seen[pos.1 as usize][pos.0 as usize] = true;
 
             let candidates = [
                 (pos.0 - 1, pos.1),
@@ -72,7 +72,7 @@ fn dijkstra(grid: &Grid) -> Vec<Vec<usize>> {
             ];
             for candidate_pos in candidates {
                 if grid.contains_pos(candidate_pos) && grid.can_move_from(candidate_pos, pos) {
-                    to_process.push((Reverse(path_length + 1), candidate_pos));
+                    to_process.push_back((path_length + 1, candidate_pos));
                 }
             }
         }
