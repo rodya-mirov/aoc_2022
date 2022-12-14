@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 fn input() -> String {
     std::fs::read_to_string("input/input_14.txt").expect("Should be able to read the file")
@@ -15,13 +15,14 @@ pub fn a() -> String {
 fn a_with_input(input: &str) -> usize {
     let (max_y_depth, mut occupancy_grid) = to_grid(input);
 
-    let mut sand_counter = 0;
+    let start_count = occupancy_grid.len();
+
     let mut into_the_void = false;
     while !into_the_void {
         let mut x = 500;
         let mut y = 0;
 
-        if occupancy_grid.contains_key(&(x, y)) {
+        if occupancy_grid.contains(&(x, y)) {
             unimplemented!("Did not handle the case where the start position gets clogged, not sure what ACs are there");
         }
 
@@ -38,25 +39,24 @@ fn a_with_input(input: &str) -> usize {
                 done_falling = true;
             } else {
                 // otherwise, attempt to move D/DL/DR and go on to another loop
-                if !occupancy_grid.contains_key(&(x, y + 1)) {
+                if !occupancy_grid.contains(&(x, y + 1)) {
                     y += 1;
-                } else if !occupancy_grid.contains_key(&(x - 1, y + 1)) {
+                } else if !occupancy_grid.contains(&(x - 1, y + 1)) {
                     x -= 1;
                     y += 1;
-                } else if !occupancy_grid.contains_key(&(x + 1, y + 1)) {
+                } else if !occupancy_grid.contains(&(x + 1, y + 1)) {
                     x += 1;
                     y += 1;
                 } else {
                     // otherwise, we can't move; settle and move to the next grain of sand
-                    occupancy_grid.insert((x, y), Occupant::Sand);
+                    occupancy_grid.insert((x, y));
                     done_falling = true;
-                    sand_counter += 1;
                 }
             }
         }
     }
 
-    sand_counter
+    occupancy_grid.len() - start_count
 }
 
 pub fn b() -> String {
@@ -68,11 +68,10 @@ pub fn b() -> String {
 }
 
 fn b_with_input(input: &str) -> usize {
-    let (max_y_depth, mut occupancy_grid) = to_grid(input);
+    let (max_y_depth, map_grid) = to_grid(input);
+    let mut actual_grid = Grid::new(map_grid);
 
-    let mut sand_counter = 0;
-
-    while !occupancy_grid.contains_key(&(500, 0)) {
+    while !actual_grid.contains(500, 0) {
         let mut x = 500;
         let mut y = 0;
 
@@ -84,30 +83,28 @@ fn b_with_input(input: &str) -> usize {
 
             // if we're into the void, we're done; exit the whole outer loop and be done
             if y > max_y_depth {
-                occupancy_grid.insert((x, y), Occupant::Sand);
-                sand_counter += 1;
+                actual_grid.try_mark_filled(x, y);
                 break;
             } else {
                 // otherwise, attempt to move D/DL/DR and go on to another loop
-                if !occupancy_grid.contains_key(&(x, y + 1)) {
+                if !actual_grid.contains(x, y + 1) {
                     y += 1;
-                } else if !occupancy_grid.contains_key(&(x - 1, y + 1)) {
+                } else if !actual_grid.contains(x - 1, y + 1) {
                     x -= 1;
                     y += 1;
-                } else if !occupancy_grid.contains_key(&(x + 1, y + 1)) {
+                } else if !actual_grid.contains(x + 1, y + 1) {
                     x += 1;
                     y += 1;
                 } else {
                     // otherwise, we can't move; settle and move to the next grain of sand
-                    occupancy_grid.insert((x, y), Occupant::Sand);
-                    sand_counter += 1;
+                    actual_grid.try_mark_filled(x, y);
                     break;
                 }
             }
         }
     }
 
-    sand_counter
+    actual_grid.amt_added
 }
 
 mod parse {
@@ -170,15 +167,9 @@ mod parse {
     }
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-enum Occupant {
-    Stone,
-    Sand,
-}
-
 // returns (max_y_depth, occupancy_grid)
-fn to_grid(input: &str) -> (u32, HashMap<(u32, u32), Occupant>) {
-    let mut occupancy_grid = HashMap::new();
+fn to_grid(input: &str) -> (u32, HashSet<(u32, u32)>) {
+    let mut occupancy_grid = HashSet::new();
     let mut max_y_depth = 0;
 
     for line in input.lines() {
@@ -190,7 +181,7 @@ fn to_grid(input: &str) -> (u32, HashMap<(u32, u32), Occupant>) {
 
         while let Some(next_pos) = pos_iter.next() {
             if last_pos == next_pos {
-                occupancy_grid.insert(last_pos, Occupant::Stone);
+                occupancy_grid.insert(last_pos);
             } else if last_pos.0 != next_pos.0 {
                 assert_eq!(last_pos.1, next_pos.1);
                 let x_min = last_pos.0.min(next_pos.0);
@@ -198,7 +189,7 @@ fn to_grid(input: &str) -> (u32, HashMap<(u32, u32), Occupant>) {
                 let y = last_pos.1;
 
                 for x in x_min..x_max + 1 {
-                    occupancy_grid.insert((x, y), Occupant::Stone);
+                    occupancy_grid.insert((x, y));
                 }
             } else {
                 assert_eq!(last_pos.0, next_pos.0);
@@ -207,7 +198,7 @@ fn to_grid(input: &str) -> (u32, HashMap<(u32, u32), Occupant>) {
                 let x = last_pos.0;
 
                 for y in y_min..y_max + 1 {
-                    occupancy_grid.insert((x, y), Occupant::Stone);
+                    occupancy_grid.insert((x, y));
                 }
             }
 
@@ -217,6 +208,79 @@ fn to_grid(input: &str) -> (u32, HashMap<(u32, u32), Occupant>) {
     }
 
     (max_y_depth, occupancy_grid)
+}
+
+struct Grid {
+    x_min: u32,
+    x_max: u32,
+    y_max: u32,
+    amt_added: usize,
+    occupancy: Vec<bool>,
+    width: usize,
+}
+
+impl Grid {
+    fn new(set: HashSet<(u32, u32)>) -> Grid {
+        let mut y_max = 0;
+
+        for (_, y) in set.iter().copied() {
+            y_max = y_max.max(y);
+        }
+
+        // maximum occupy-able position is 1 more than observed occupied position
+        y_max += 1;
+
+        // we don't actually care about tracking rocks we can never interact with; sand can only
+        // go left or right as far as the down allows
+        let x_min = 500 - y_max;
+        let x_max = 500 + y_max;
+
+        let height = (y_max + 1) as usize;
+        let width = (x_max - x_min + 1) as usize;
+        let data_size = width * height;
+
+        let mut grid = Grid {
+            x_min,
+            x_max,
+            y_max,
+            occupancy: vec![false; data_size],
+            amt_added: 0,
+            width,
+        };
+
+        for (x, y) in set {
+            grid.try_mark_filled(x, y);
+        }
+
+        grid.amt_added = 0;
+
+        grid
+    }
+
+    fn is_in_grid(&self, x: u32, y: u32) -> bool {
+        x >= self.x_min && x <= self.x_max && y <= self.y_max
+    }
+
+    // turn a position into an index into the occupancy array
+    // PRE: self.is_in_grid(x, y) is true
+    fn make_ind(&self, x: u32, y: u32) -> usize {
+        self.width * (y as usize) + ((x - self.x_min) as usize)
+    }
+
+    fn contains(&self, x: u32, y: u32) -> bool {
+        self.is_in_grid(x, y) && self.occupancy[self.make_ind(x, y)]
+    }
+
+    fn try_mark_filled(&mut self, x: u32, y: u32) -> bool {
+        if self.is_in_grid(x, y) {
+            let ind = self.make_ind(x, y);
+            self.occupancy[ind] = true;
+            self.amt_added += 1;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[cfg(test)]
