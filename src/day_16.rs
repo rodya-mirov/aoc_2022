@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use opened::ValvesOpen;
 use valves::Valves;
 
@@ -16,116 +14,100 @@ pub fn a() -> String {
 }
 
 fn a_with_input(input: &str, total_time: u32) -> u32 {
-    #[derive(Copy, Clone, Eq, PartialEq, Hash)]
-    struct ImmediateState {
-        current_position: usize,
-        valves_open: ValvesOpen,
-        time_remaining: u32,
-    }
+    let tunnel_state = parse_and_trcl_input(input);
 
-    // A map from immediate state to the best _additional_ flow that can be managed from that point
-    // on. The idea is that no state needs to be traversed twice.
-    type Cache = HashMap<ImmediateState, u32>;
-
-    let (input, start_locations) = parse_and_prep_input(input);
-
-    let num_nodes = input.len();
+    let num_nodes = tunnel_state.flows.len();
 
     let mut valves_open = ValvesOpen::new(num_nodes);
-    let mut flow_rate_by_node: Vec<u32> = vec![0; num_nodes];
-    let mut tunnels_by_node: Vec<Vec<(usize, u32)>> = vec![Vec::new(); num_nodes];
 
-    for (node_index, flow_rate, tunnels) in input {
-        flow_rate_by_node[node_index] = flow_rate;
-        tunnels_by_node[node_index] = tunnels;
-        if flow_rate == 0 {
-            valves_open.open(node_index);
+    for i in 0..num_nodes {
+        if tunnel_state.flows[i] == 0 {
+            valves_open.open(i);
         }
     }
-    let mut best_at_state: Cache = HashMap::new();
 
-    // simple recursion with no pruning, just a DFS
-    // stop conditions: time runs out, or all valves are open
-    // Returns: the ADDITIONAL_FLOW that can be managed from this point.
     fn recurse(
         valves_open: ValvesOpen,
-        flow_rate_by_node: &[u32],
-        tunnels_by_node: &[Vec<(usize, u32)>],
-        current_position: usize,
+        tunnel_state: &TunnelState,
+        // CONTRACT: if a player is in a location, that location is ALREADY open and the flow
+        //      is accounted for in the flow_so_far variable
+        pos: usize,
         time_remaining: u32,
-        cache: &mut Cache,
-    ) -> u32 {
+        flow_so_far: u32,
+        // maintained as we go
+        best_total_ever: &mut u32,
+    ) {
+        // if we got here, the configuration is possible; we could just stop here and it would
+        // be one possible solution
+        *best_total_ever = (*best_total_ever).max(flow_so_far);
+
         // if we're out of time, or every valve is open, there's no more room for benefit, just
         // stop the simulation and be done
         if time_remaining == 0 || valves_open.all_open() {
-            return 0;
+            return;
         }
 
-        let state = ImmediateState {
-            current_position,
-            valves_open,
-            time_remaining,
-        };
-
-        if let Some(saved) = cache.get(&state).copied() {
-            return saved;
-        }
-
-        let mut best = 0;
-
-        if !valves_open.is_open(current_position) {
-            let mut valves_open = valves_open.clone();
-            valves_open.open(current_position);
-            let direct_flow = flow_rate_by_node[current_position] * (time_remaining - 1);
-            let flow_after_here = recurse(
-                valves_open,
-                flow_rate_by_node,
-                tunnels_by_node,
-                current_position,
-                time_remaining - 1,
-                cache,
-            );
-            let flow_here = direct_flow + flow_after_here;
-            best = best.max(flow_here);
-        }
-
-        for (connecting_position, connecting_cost) in
-            tunnels_by_node[current_position].iter().copied()
+        // this isn't a perfect metric but it's probably good enough -- if it's simply impossible
+        // to exceed the best total ever from here, then stop
+        if valves_open.max_remaining_flow_one_player(tunnel_state, pos, time_remaining)
+            + flow_so_far
+            <= *best_total_ever
         {
-            if time_remaining < connecting_cost {
+            return;
+        }
+
+        // Player has a couple of options -- they can either take an optimal path to an unopened
+        // valve and immediately open it; or they can stop forever (there is no advantage
+        // in doing anything else)
+        for target_node in 0..tunnel_state.flows.len() {
+            if valves_open.is_open(target_node) {
                 continue;
             }
 
-            let flow_after_move = recurse(
+            let travel_and_open_time = tunnel_state.path_weights[pos][target_node] + 1;
+            if travel_and_open_time >= time_remaining {
+                continue;
+            }
+
+            let open_time = time_remaining - travel_and_open_time;
+
+            let local_flow = flow_so_far + open_time * tunnel_state.flows[target_node];
+            let mut valves_open = valves_open.clone();
+            valves_open.open(target_node);
+
+            recurse(
                 valves_open,
-                flow_rate_by_node,
-                tunnels_by_node,
-                connecting_position,
-                time_remaining - connecting_cost,
-                cache,
+                tunnel_state,
+                target_node,
+                open_time,
+                local_flow,
+                best_total_ever,
             );
-            best = best.max(flow_after_move);
         }
 
-        cache.insert(state, best);
-
-        best
-    }
-
-    let mut best = u32::MIN;
-    for (start_pos, cost_to_start) in start_locations {
-        let next_best = recurse(
+        // I don't think there's any advantage to just stopping, but why not cover it
+        // since I don't feel 100% certain
+        recurse(
             valves_open,
-            flow_rate_by_node.as_slice(),
-            tunnels_by_node.as_slice(),
-            start_pos,
-            total_time - cost_to_start,
-            &mut best_at_state,
+            tunnel_state,
+            pos,
+            0,
+            flow_so_far,
+            best_total_ever,
         );
-        best = best.max(next_best);
     }
 
-    best
+    let mut best_total_ever = 0;
+    recurse(
+        valves_open,
+        &tunnel_state,
+        tunnel_state.start_node,
+        total_time,
+        0,
+        &mut best_total_ever,
+    );
+
+    best_total_ever
 }
 
 pub fn b() -> String {
@@ -149,7 +131,6 @@ fn b_with_input(input: &str, total_time: u32) -> u32 {
         }
     }
 
-    // TODO: after all this prep and culling, needs either better heuristics or a cache
     fn recurse(
         valves_open: ValvesOpen,
         tunnel_state: &TunnelState,
@@ -189,8 +170,6 @@ fn b_with_input(input: &str, total_time: u32) -> u32 {
             return;
         }
 
-        // TODO if needed: cache? if we end up in a state twice, skip it
-
         // if we're out of time, or every valve is open, there's no more room for benefit, just
         // stop the simulation and be done
         if a_time_remaining == 0 || valves_open.all_open() {
@@ -199,7 +178,7 @@ fn b_with_input(input: &str, total_time: u32) -> u32 {
 
         // this isn't a perfect metric but it's probably good enough -- if it's simply impossible
         // to exceed the best total ever from here, then stop
-        if valves_open.max_remaining_flow(
+        if valves_open.max_remaining_flow_two_players(
             tunnel_state,
             a_pos,
             a_time_remaining,
@@ -208,12 +187,6 @@ fn b_with_input(input: &str, total_time: u32) -> u32 {
         ) + flow_so_far
             <= *best_total_ever
         {
-            if a_time_remaining >= 40 {
-                println!(
-                    "Killing a branch with times remaining {}/{}",
-                    a_time_remaining, b_time_remaining
-                );
-            }
             return;
         }
 
@@ -345,8 +318,32 @@ mod opened {
         /// Provides an upper bound on the amount of possible additional flow which can be
         /// obtained from this point. Not intended to be a sharp upper bound, just sufficient
         /// for culling.
-        /// TODO: basically I just don't think this heuristic is good enough
-        pub fn max_remaining_flow(
+        pub fn max_remaining_flow_one_player(
+            &self,
+            tunnel_state: &TunnelState,
+            pos: usize,
+            time_remaining: u32,
+        ) -> u32 {
+            let mut out = 0;
+            for i in 0..tunnel_state.flows.len() {
+                if !self.is_open(i) {
+                    let mut best_time = 0;
+                    let local_flow = tunnel_state.flows[i];
+
+                    let travel_time = tunnel_state.path_weights[pos][i];
+                    if travel_time + 1 < time_remaining {
+                        best_time = time_remaining - travel_time - 1;
+                    }
+                    out += best_time * local_flow;
+                }
+            }
+            out
+        }
+
+        /// Provides an upper bound on the amount of possible additional flow which can be
+        /// obtained from this point. Not intended to be a sharp upper bound, just sufficient
+        /// for culling.
+        pub fn max_remaining_flow_two_players(
             &self,
             tunnel_state: &TunnelState,
             a_pos: usize,
@@ -477,10 +474,11 @@ fn parse_and_trcl_input(input: &str) -> TunnelState {
 
     // then compute the transitive closure
     // this is guaranteed to end after N steps since there are no negative-length cycles
-    //      and N is small enough that N^4 is trivial, so we're not gonna bother detecting early stopping
+    //      and N is small enough that N^4 is trivial; we still detect early stopping (why not)
+    //      but we have an upper bound on the number of required iterations
     // also we don't have to worry about overflow since the original weights are all 1, so maximum
     //      ending weight is N, which is WELL below the bound of the datatype
-    for big_round in 0..num_nodes {
+    for _ in 0..num_nodes {
         let mut improvement_found = false;
         for start_node in 0..num_nodes {
             for mid_node in 0..num_nodes {
@@ -508,20 +506,7 @@ fn parse_and_trcl_input(input: &str) -> TunnelState {
                 }
             }
         }
-        if improvement_found {
-            if big_round + 1 < num_nodes {
-                println!(
-                    "After {} rounds ({} possible), improvement was found; will try again",
-                    big_round, num_nodes
-                );
-            } else {
-                println!("After {} rounds ({} possible), improvement was found, but we'll stop anyway, which is a little weird", big_round, num_nodes);
-            }
-        } else {
-            println!(
-                "After {} rounds ({} possible), no improvement was found; stopping now.",
-                big_round, num_nodes
-            );
+        if !improvement_found {
             break;
         }
     }
@@ -564,139 +549,6 @@ fn parse_and_trcl_input(input: &str) -> TunnelState {
     }
 
     tunnel_state
-}
-
-// Return: list of rows (node_ind, flow_rate, list<(connecting_node_ind, time_to_get_to_node)>
-// Also return list<(starting_node_ind, time_to_start_at_node)>
-fn parse_and_prep_input(input: &str) -> (Vec<(usize, u32, Vec<(usize, u32)>)>, Vec<(usize, u32)>) {
-    let parsed_lines: Vec<(String, u32, Vec<String>)> = parse::parse_input(input);
-    // First, acknowledge that each path has a variable cost (not just 1)
-    let mut parsed_lines: Vec<(String, u32, Vec<(String, u32)>)> = parsed_lines
-        .into_iter()
-        .map(|(name, flow, paths)| {
-            let paths = paths
-                .into_iter()
-                .map(|connection| (connection, 1))
-                .collect();
-            (name, flow, paths)
-        })
-        .collect();
-
-    let mut paths_to_start: Vec<(String, u32)> = vec![("AA".to_string(), 0)];
-
-    // Then, sequentially remove 0-flow nodes, until they're all gone
-
-    // sweep through all nodes that connect to this node, and replace them with connections
-    // through this node with higher cost, then remove redundant connections
-    // (e.g. GJ for 2, GJ for 2, and GJ for 13) and self-connections
-    fn clean_connections(
-        deleted_node_name: &str,
-        connections_from_deleted: &[(String, u32)],
-        source: Option<&str>,
-        connections_from_source: &mut Vec<(String, u32)>,
-    ) {
-        // early stop if this source doesn't go to the deleted node
-        if !connections_from_source
-            .iter()
-            .any(|(target, _)| target == &deleted_node_name)
-        {
-            return;
-        }
-
-        // replace all the old connections with altered connections (as needed)
-        // we do this by replacing the vector of connections
-        let old_connections = std::mem::take(connections_from_source);
-        for (target, cost) in old_connections {
-            if target != deleted_node_name {
-                connections_from_source.push((target, cost));
-            } else {
-                for (new_target, addl_cost) in connections_from_deleted.iter() {
-                    // skip self-connections right away; these can arise from cycles in the graph
-                    // they don't really hurt anything but they're a waste of time
-                    if Some(new_target.as_str()) == source {
-                        continue;
-                    }
-                    let new_cost = cost + addl_cost;
-                    connections_from_source.push((new_target.to_string(), new_cost));
-                }
-            }
-        }
-
-        // now again we replace the vector with a new one; here we dedupe
-        let mut old_connections: Vec<(String, u32)> = std::mem::take(connections_from_source);
-
-        // sorting order is important -- we sort by target, then subsort by cost (ascending)
-        // so the first time we see a target, it's the one we want to keep
-        old_connections.sort();
-
-        let mut old_connections_iter = old_connections.into_iter();
-        let mut to_insert = old_connections_iter.next().unwrap();
-
-        while let Some(next) = old_connections_iter.next() {
-            if to_insert.0 != next.0 {
-                connections_from_source.push(to_insert);
-                to_insert = next;
-            }
-            // else skip the edge entirely, it's redundant
-        }
-
-        connections_from_source.push(to_insert);
-    }
-
-    fn pop_next_removable_node(
-        parsed_lines: &mut Vec<(String, u32, Vec<(String, u32)>)>,
-    ) -> Option<(String, u32, Vec<(String, u32)>)> {
-        parsed_lines
-            .iter()
-            .enumerate()
-            // find a line with no flow
-            .filter(|(_, (_, flow, _))| *flow == 0)
-            // grab the index
-            .map(|(i, _)| i)
-            .next()
-            // pop it out of the vector and return it
-            .map(|i| parsed_lines.remove(i))
-    }
-
-    while let Some((deleted_node_name, _, connections_from_deleted)) =
-        pop_next_removable_node(&mut parsed_lines)
-    {
-        for (ref source, _, ref mut connections_from_source) in parsed_lines.iter_mut() {
-            clean_connections(
-                &deleted_node_name,
-                &connections_from_deleted,
-                Some(source),
-                connections_from_source,
-            );
-        }
-
-        clean_connections(
-            &deleted_node_name,
-            &connections_from_deleted,
-            None,
-            &mut paths_to_start,
-        );
-    }
-
-    // Finally, give everything sequential names and be done
-    let mut valves = Valves::new();
-
-    let paths_to_start = paths_to_start
-        .into_iter()
-        .map(|(name, cost)| (valves.get_or_insert_index(name), cost))
-        .collect();
-    let parsed_lines = parsed_lines
-        .into_iter()
-        .map(|(name, flow, connections)| {
-            let connections: Vec<(usize, u32)> = connections
-                .into_iter()
-                .map(|(target, cost)| (valves.get_or_insert_index(target), cost))
-                .collect();
-            (valves.get_or_insert_index(name), flow, connections)
-        })
-        .collect();
-
-    (parsed_lines, paths_to_start)
 }
 
 #[cfg(test)]
