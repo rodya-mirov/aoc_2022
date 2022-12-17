@@ -27,14 +27,13 @@ fn a_with_input(input: &str, total_time: u32) -> u32 {
     // on. The idea is that no state needs to be traversed twice.
     type Cache = HashMap<ImmediateState, u32>;
 
-    let mut valves = Valves::new();
-    let input = parse::parse_input(input, &mut valves);
+    let (input, start_locations) = parse_and_prep_input(input);
 
-    let num_nodes = valves.num_nodes();
+    let num_nodes = input.len();
 
     let mut valves_open = ValvesOpen::new(num_nodes);
-    let mut flow_rate_by_node = vec![0; num_nodes];
-    let mut tunnels_by_node = vec![Vec::new(); num_nodes];
+    let mut flow_rate_by_node: Vec<u32> = vec![0; num_nodes];
+    let mut tunnels_by_node: Vec<Vec<(usize, u32)>> = vec![Vec::new(); num_nodes];
 
     for (node_index, flow_rate, tunnels) in input {
         flow_rate_by_node[node_index] = flow_rate;
@@ -51,7 +50,7 @@ fn a_with_input(input: &str, total_time: u32) -> u32 {
     fn recurse(
         valves_open: ValvesOpen,
         flow_rate_by_node: &[u32],
-        tunnels_by_node: &[Vec<usize>],
+        tunnels_by_node: &[Vec<(usize, u32)>],
         current_position: usize,
         time_remaining: u32,
         cache: &mut Cache,
@@ -90,13 +89,19 @@ fn a_with_input(input: &str, total_time: u32) -> u32 {
             best = best.max(flow_here);
         }
 
-        for connecting_position in tunnels_by_node[current_position].iter().copied() {
+        for (connecting_position, connecting_cost) in
+            tunnels_by_node[current_position].iter().copied()
+        {
+            if time_remaining < connecting_cost {
+                continue;
+            }
+
             let flow_after_move = recurse(
                 valves_open,
                 flow_rate_by_node,
                 tunnels_by_node,
                 connecting_position,
-                time_remaining - 1,
+                time_remaining - connecting_cost,
                 cache,
             );
             best = best.max(flow_after_move);
@@ -107,15 +112,18 @@ fn a_with_input(input: &str, total_time: u32) -> u32 {
         best
     }
 
-    let start_position = valves.start_position();
-    let best = recurse(
-        valves_open,
-        flow_rate_by_node.as_slice(),
-        tunnels_by_node.as_slice(),
-        start_position,
-        total_time,
-        &mut best_at_state,
-    );
+    let mut best = u32::MIN;
+    for (start_pos, cost_to_start) in start_locations {
+        let next_best = recurse(
+            valves_open,
+            flow_rate_by_node.as_slice(),
+            tunnels_by_node.as_slice(),
+            start_pos,
+            total_time - cost_to_start,
+            &mut best_at_state,
+        );
+        best = best.max(next_best);
+    }
 
     best
 }
@@ -123,7 +131,12 @@ fn a_with_input(input: &str, total_time: u32) -> u32 {
 pub fn b() -> String {
     let contents = input();
 
-    let val = b_with_input(&contents, 15);
+    // currently:
+    //      n=18 ->  6.7s
+    //      n=19 -> 11.9s
+    //      n=20 -> 21.8s
+    //      n=26 -> :sob:
+    let val = b_with_input(&contents, 20);
 
     val.to_string()
 }
@@ -138,14 +151,9 @@ fn b_with_input(input: &str, total_time: u32) -> u32 {
         b_time_remaining: u32,
     }
 
-    // A map from immediate state to the best _additional_ flow that can be managed from that point
-    // on. The idea is that no state needs to be traversed twice.
-    type Cache = HashMap<ImmediateState, u32>;
+    let (input, start_locations) = parse_and_prep_input(input);
 
-    let mut valves = Valves::new();
-    let input = parse::parse_input(input, &mut valves);
-
-    let num_nodes = valves.num_nodes();
+    let num_nodes = input.len();
 
     let mut valves_open = ValvesOpen::new(num_nodes);
     let mut flow_rate_by_node = vec![0; num_nodes];
@@ -158,63 +166,70 @@ fn b_with_input(input: &str, total_time: u32) -> u32 {
             valves_open.open(node_index);
         }
     }
-    let mut best_at_state: Cache = HashMap::new();
 
     // simple recursion with no pruning, just a DFS
     // stop conditions: time runs out, or all valves are open
-    // Returns: the ADDITIONAL_FLOW that can be managed from this point.
     fn recurse(
         valves_open: ValvesOpen,
         flow_rate_by_node: &[u32],
-        tunnels_by_node: &[Vec<usize>],
+        tunnels_by_node: &[Vec<(usize, u32)>],
         // NOTE: a_pos / a_time_remaining is the "next player"
         //       after player a goes, it's in the next call as player b
         a_pos: usize,
         a_time_remaining: u32,
         b_pos: usize,
         b_time_remaining: u32,
-        cache: &mut Cache,
-        // abort the flow if it is determined that we cannot exceed this goal
-        min_flow_goal: u32,
-        // not important for correctness, just indicates the number of cache misses
-        iterations: &mut usize,
-    ) -> Option<u32> {
-        debug_assert!(a_time_remaining >= b_time_remaining);
-        debug_assert!(b_time_remaining + 1 >= a_time_remaining);
+        flow_so_far: u32,
+        // maintained as we go
+        best_total_ever: &mut u32,
+    ) {
+        // if we got here, the configuration is possible; we could just stop here and it would
+        // be one possible solution
+        *best_total_ever = (*best_total_ever).max(flow_so_far);
+
+        // no real downside to making sure we're doing things in time-order
+        // and lots of upsides (always better to hit a valve sooner than later)
+        if a_time_remaining < b_time_remaining {
+            recurse(
+                valves_open,
+                flow_rate_by_node,
+                tunnels_by_node,
+                b_pos,
+                b_time_remaining,
+                a_pos,
+                a_time_remaining,
+                flow_so_far,
+                best_total_ever,
+            );
+            return;
+        }
 
         // if we're out of time, or every valve is open, there's no more room for benefit, just
         // stop the simulation and be done
         if a_time_remaining == 0 || valves_open.all_open() {
-            return Some(0);
+            return;
         }
 
+        // this isn't a perfect metric but it's probably good enough -- if it's simply impossible
+        // to exceed the best total ever from here, then stop
         if valves_open.max_remaining_flow(flow_rate_by_node, a_time_remaining, a_pos, b_pos)
-            <= min_flow_goal
+            + flow_so_far
+            <= *best_total_ever
         {
-            return None;
+            if a_time_remaining >= 40 {
+                println!(
+                    "Killing a branch with times remaining {}/{}",
+                    a_time_remaining, b_time_remaining
+                );
+            }
+            return;
         }
-
-        let state = ImmediateState {
-            valves_open,
-            a_pos,
-            b_pos,
-            a_time_remaining,
-            b_time_remaining,
-        };
-
-        if let Some(saved) = cache.get(&state).copied() {
-            return Some(saved);
-        }
-
-        *iterations += 1;
-
-        let mut best = 0;
 
         if !valves_open.is_open(a_pos) {
             let mut valves_open = valves_open.clone();
             valves_open.open(a_pos);
             let direct_flow = flow_rate_by_node[a_pos] * (a_time_remaining - 1);
-            let flow_after_here = recurse(
+            recurse(
                 valves_open,
                 flow_rate_by_node,
                 tunnels_by_node,
@@ -224,26 +239,31 @@ fn b_with_input(input: &str, total_time: u32) -> u32 {
                 // A moves to new position, reduces time, and becomes B
                 a_pos,
                 a_time_remaining - 1,
-                cache,
-                best,
-                iterations,
+                flow_so_far + direct_flow,
+                best_total_ever,
             );
-            if let Some(flow_after_here) = flow_after_here {
-                let flow_here = direct_flow + flow_after_here;
-                best = best.max(flow_here);
-            }
         }
 
-        let mut ideal_positions: Vec<usize> = tunnels_by_node[a_pos].iter().copied().collect();
-        ideal_positions.sort_by_key(|&node| {
-            if valves_open.is_open(node) {
-                0
-            } else {
-                flow_rate_by_node[node]
-            }
+        // We assume the "greedy" solution is a good first guess -- go to the most high-value
+        // locations first, establish a high baseline goal, so we can cull lots of branches that
+        // were never competitive without walking the whole way down
+        let mut ideal_positions: Vec<(usize, u32)> =
+            tunnels_by_node[a_pos].iter().copied().collect();
+        ideal_positions.sort_by_key(|(node, cost)| {
+            // factor in the time it takes to get there
+            std::cmp::Reverse(
+                if valves_open.is_open(*node) || *cost >= a_time_remaining + 1 {
+                    0
+                } else {
+                    flow_rate_by_node[*node] * (a_time_remaining - *cost - 1)
+                },
+            )
         });
-        for connecting_position in ideal_positions.into_iter().rev() {
-            let flow_after_move = recurse(
+        for (connecting_position, cost) in ideal_positions.into_iter() {
+            if cost > a_time_remaining {
+                continue;
+            }
+            recurse(
                 valves_open,
                 flow_rate_by_node,
                 tunnels_by_node,
@@ -252,40 +272,32 @@ fn b_with_input(input: &str, total_time: u32) -> u32 {
                 b_time_remaining,
                 // A moves to new position, reduces time, and becomes B
                 connecting_position,
-                a_time_remaining - 1,
-                cache,
-                best,
-                iterations,
+                a_time_remaining - cost,
+                // the totals didn't change since we just did a move
+                flow_so_far,
+                best_total_ever,
             );
-            if let Some(flow_after_move) = flow_after_move {
-                best = best.max(flow_after_move);
-            }
         }
-
-        cache.insert(state, best);
-
-        Some(best)
     }
 
-    let mut iterations = 0;
-    let start_position = valves.start_position();
-    let best = recurse(
-        valves_open,
-        flow_rate_by_node.as_slice(),
-        tunnels_by_node.as_slice(),
-        start_position,
-        total_time,
-        start_position,
-        total_time,
-        &mut best_at_state,
-        0,
-        &mut iterations,
-    );
+    let mut best_total_ever = 0;
+    for (pos_a, starting_cost_a) in start_locations.iter().copied() {
+        for (pos_b, starting_cost_b) in start_locations.iter().copied() {
+            recurse(
+                valves_open,
+                flow_rate_by_node.as_slice(),
+                tunnels_by_node.as_slice(),
+                pos_a,
+                total_time - starting_cost_a,
+                pos_b,
+                total_time - starting_cost_b,
+                0,
+                &mut best_total_ever,
+            );
+        }
+    }
 
-    println!("  Hit {} iterations", iterations);
-    println!("  Had {} states in cache at the end", best_at_state.len());
-
-    best.unwrap()
+    best_total_ever
 }
 
 mod valves {
@@ -310,17 +322,6 @@ mod valves {
                 self.lookup.insert(s.to_string(), ind);
                 ind
             }
-        }
-
-        pub(super) fn num_nodes(&self) -> usize {
-            self.lookup.len()
-        }
-
-        pub(super) fn start_position(&self) -> usize {
-            self.lookup
-                .get("AA")
-                .copied()
-                .expect("AA should be a valid node")
         }
     }
 }
@@ -422,74 +423,172 @@ mod parse {
         IResult,
     };
 
-    use super::Valves;
-
     fn parse_num(input: &str) -> IResult<&str, u32> {
         let (input, val) = map(digit1, |digits: &str| digits.parse::<u32>().unwrap())(input)?;
 
         Ok((input, val))
     }
 
-    fn parse_valve_name<'a>(input: &'a str, valves: &mut Valves) -> IResult<&'a str, usize> {
+    fn parse_valve_name(input: &str) -> IResult<&str, String> {
         let (input, name) = alpha1(input)?;
-        let ind = valves.get_or_insert_index(name);
-        Ok((input, ind))
+        Ok((input, name.to_string()))
     }
 
-    fn parse_line_helper<'a>(
-        input: &'a str,
-        valves: &mut Valves,
-    ) -> IResult<&'a str, (usize, u32, Vec<usize>)> {
+    fn parse_line_helper(input: &str) -> IResult<&str, (String, u32, Vec<String>)> {
         let (input, _) = tag("Valve ")(input)?;
-        let (input, valve_ind) = parse_valve_name(input, valves)?;
+        let (input, valve_name) = parse_valve_name(input)?;
         let (input, _) = tag(" has flow rate=")(input)?;
         let (input, flow_rate) = parse_num(input)?;
         let (input, _) = alt((
             tag("; tunnels lead to valves "),
             tag("; tunnel leads to valve "),
         ))(input)?;
-        let (input, destinations) =
-            separated_list1(tag(", "), |s| parse_valve_name(s, valves))(input)?;
+        let (input, destinations) = separated_list1(tag(", "), |s| parse_valve_name(s))(input)?;
         let (_, _) = eof(input)?;
 
-        Ok(("", (valve_ind, flow_rate, destinations)))
+        Ok(("", (valve_name, flow_rate, destinations)))
     }
 
-    fn parse_line(input: &str, valves: &mut Valves) -> (usize, u32, Vec<usize>) {
-        parse_line_helper(input, valves).unwrap().1
+    fn parse_line(input: &str) -> (String, u32, Vec<String>) {
+        parse_line_helper(input).unwrap().1
     }
 
-    pub(super) fn parse_input(input: &str, valves: &mut Valves) -> Vec<(usize, u32, Vec<usize>)> {
-        input.lines().map(|line| parse_line(line, valves)).collect()
+    pub(super) fn parse_input(input: &str) -> Vec<(String, u32, Vec<String>)> {
+        input.lines().map(parse_line).collect()
+    }
+}
+
+// Return: list of rows (node_ind, flow_rate, list<(connecting_node_ind, time_to_get_to_node)>
+// Also return list<(starting_node_ind, time_to_start_at_node)>
+fn parse_and_prep_input(input: &str) -> (Vec<(usize, u32, Vec<(usize, u32)>)>, Vec<(usize, u32)>) {
+    let parsed_lines: Vec<(String, u32, Vec<String>)> = parse::parse_input(input);
+    // First, acknowledge that each path has a variable cost (not just 1)
+    let mut parsed_lines: Vec<(String, u32, Vec<(String, u32)>)> = parsed_lines
+        .into_iter()
+        .map(|(name, flow, paths)| {
+            let paths = paths
+                .into_iter()
+                .map(|connection| (connection, 1))
+                .collect();
+            (name, flow, paths)
+        })
+        .collect();
+
+    let mut paths_to_start: Vec<(String, u32)> = vec![("AA".to_string(), 0)];
+
+    // Then, sequentially remove 0-flow nodes, until they're all gone
+
+    // sweep through all nodes that connect to this node, and replace them with connections
+    // through this node with higher cost, then remove redundant connections
+    // (e.g. GJ for 2, GJ for 2, and GJ for 13) and self-connections
+    fn clean_connections(
+        deleted_node_name: &str,
+        connections_from_deleted: &[(String, u32)],
+        source: Option<&str>,
+        connections_from_source: &mut Vec<(String, u32)>,
+    ) {
+        // early stop if this source doesn't go to the deleted node
+        if !connections_from_source
+            .iter()
+            .any(|(target, _)| target == &deleted_node_name)
+        {
+            return;
+        }
+
+        // replace all the old connections with altered connections (as needed)
+        // we do this by replacing the vector of connections
+        let old_connections = std::mem::take(connections_from_source);
+        for (target, cost) in old_connections {
+            if target != deleted_node_name {
+                connections_from_source.push((target, cost));
+            } else {
+                for (new_target, addl_cost) in connections_from_deleted.iter() {
+                    // skip self-connections right away; these can arise from cycles in the graph
+                    // they don't really hurt anything but they're a waste of time
+                    if Some(new_target.as_str()) == source {
+                        continue;
+                    }
+                    let new_cost = cost + addl_cost;
+                    connections_from_source.push((new_target.to_string(), new_cost));
+                }
+            }
+        }
+
+        // now again we replace the vector with a new one; here we dedupe
+        let mut old_connections: Vec<(String, u32)> = std::mem::take(connections_from_source);
+
+        // sorting order is important -- we sort by target, then subsort by cost (ascending)
+        // so the first time we see a target, it's the one we want to keep
+        old_connections.sort();
+
+        let mut old_connections_iter = old_connections.into_iter();
+        let mut to_insert = old_connections_iter.next().unwrap();
+
+        while let Some(next) = old_connections_iter.next() {
+            if to_insert.0 != next.0 {
+                connections_from_source.push(to_insert);
+                to_insert = next;
+            }
+            // else skip the edge entirely, it's redundant
+        }
+
+        connections_from_source.push(to_insert);
     }
 
-    #[cfg(test)]
-    mod tests {
-        use super::parse_line;
-        use super::Valves;
+    fn pop_next_removable_node(
+        parsed_lines: &mut Vec<(String, u32, Vec<(String, u32)>)>,
+    ) -> Option<(String, u32, Vec<(String, u32)>)> {
+        parsed_lines
+            .iter()
+            .enumerate()
+            // find a line with no flow
+            .filter(|(_, (_, flow, _))| *flow == 0)
+            // grab the index
+            .map(|(i, _)| i)
+            .next()
+            // pop it out of the vector and return it
+            .map(|i| parsed_lines.remove(i))
+    }
 
-        #[test]
-        fn sample_lines() {
-            let mut valves = Valves::new();
-
-            assert_eq!(
-                parse_line(
-                    "Valve AA has flow rate=0; tunnels lead to valves DD, II, BB",
-                    &mut valves
-                ),
-                (0, 0, vec![1, 2, 3])
-            );
-            // note BB has already been given index 3, and AA has been given index 0
-            // but CC is new, so it gets 4
-            assert_eq!(
-                parse_line(
-                    "Valve BB has flow rate=13; tunnels lead to valves CC, AA",
-                    &mut valves
-                ),
-                (3, 13, vec![4, 0])
+    while let Some((deleted_node_name, _, connections_from_deleted)) =
+        pop_next_removable_node(&mut parsed_lines)
+    {
+        for (ref source, _, ref mut connections_from_source) in parsed_lines.iter_mut() {
+            clean_connections(
+                &deleted_node_name,
+                &connections_from_deleted,
+                Some(source),
+                connections_from_source,
             );
         }
+
+        clean_connections(
+            &deleted_node_name,
+            &connections_from_deleted,
+            None,
+            &mut paths_to_start,
+        );
     }
+
+    // Finally, give everything sequential names and be done
+    let mut valves = Valves::new();
+
+    let paths_to_start = paths_to_start
+        .into_iter()
+        .map(|(name, cost)| (valves.get_or_insert_index(&name), cost))
+        .collect();
+    let parsed_lines = parsed_lines
+        .into_iter()
+        .map(|(name, flow, connections)| {
+            let connections: Vec<(usize, u32)> = connections
+                .into_iter()
+                .map(|(target, cost)| (valves.get_or_insert_index(&target), cost))
+                .collect();
+            (valves.get_or_insert_index(&name), flow, connections)
+        })
+        .collect();
+
+    (parsed_lines, paths_to_start)
 }
 
 #[cfg(test)]
