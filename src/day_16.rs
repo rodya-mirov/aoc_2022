@@ -1,5 +1,5 @@
 use opened::ValvesOpen;
-use valves::Valves;
+use renamer::Renamer;
 
 fn input() -> String {
     std::fs::read_to_string("input/input_16.txt").expect("Should be able to read the file")
@@ -250,16 +250,16 @@ fn b_with_input(input: &str, total_time: u32) -> u32 {
     best_total_ever
 }
 
-mod valves {
+mod renamer {
     use std::collections::HashMap;
 
-    pub(super) struct Valves<T = String> {
+    pub(super) struct Renamer<T = String> {
         lookup: HashMap<T, usize>,
     }
 
-    impl<T: Eq + PartialEq + std::hash::Hash> Valves<T> {
+    impl<T: Eq + PartialEq + std::hash::Hash> Renamer<T> {
         pub(super) fn new() -> Self {
-            Valves {
+            Renamer {
                 lookup: HashMap::new(),
             }
         }
@@ -277,7 +277,7 @@ mod valves {
 }
 
 mod opened {
-    use crate::day_16::TunnelState;
+    use super::TunnelState;
 
     #[derive(Hash, Eq, PartialEq, Copy, Clone)]
     // bit at position i is 1 if the valve is CLOSED and 0 if the valve is OPEN
@@ -452,7 +452,7 @@ struct TunnelState {
 
 fn parse_and_trcl_input(input: &str) -> TunnelState {
     let parsed_lines: Vec<(String, u32, Vec<String>)> = parse::parse_input(input);
-    let mut valves_a = Valves::new();
+    let mut valves_a = Renamer::new();
     let num_nodes = parsed_lines.len();
 
     let mut tunnel_state = TunnelState {
@@ -521,7 +521,7 @@ fn parse_and_trcl_input(input: &str) -> TunnelState {
 
     let num_kept_nodes = (0..num_nodes).filter(|f| keep_index(*f)).count();
 
-    let mut reindexer: Valves<usize> = Valves::new();
+    let mut reindexer: Renamer<usize> = Renamer::new();
     let mut tunnel_state = TunnelState {
         flows: vec![0; num_kept_nodes],
         path_weights: vec![vec![u32::MAX; num_kept_nodes]; num_kept_nodes],
