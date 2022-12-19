@@ -22,6 +22,10 @@ mod columns {
     const COLUMN_HEIGHT: usize = 127;
 
     pub(super) struct Columns {
+        // represent the column's filled-in state as a bitstring
+        // realistically could probably do this with a vec of usizes but this is so much easier
+        // to hash, and it wasn't really that hard
+        // (but it will panic if it needs more than 128 elements; i originally had it as u64 and it didn't work)
         columns: [u128; NUM_COLUMNS],
         // everything at or below this number is known to be inaccessible, so we don't even
         // bother tracking it
