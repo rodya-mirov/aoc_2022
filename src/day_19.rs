@@ -103,7 +103,10 @@ fn optimal_geode_output(blueprint: Blueprint, total_time: i32) -> i32 {
 
         // we can only buy one robot per turn; so our speeds for each resource never needs to exceed
         // the maximum amount we can spend per turn
-        let max_ore_speed = blueprint.clay_robot_ore_cost.max(blueprint.obsidian_robot_ore_cost).max(blueprint.geode_robot_ore_cost);
+        let max_ore_speed = blueprint
+            .clay_robot_ore_cost
+            .max(blueprint.obsidian_robot_ore_cost)
+            .max(blueprint.geode_robot_ore_cost);
         let max_clay_speed = blueprint.obsidian_robot_clay_cost;
         let max_obsidian_speed = blueprint.geode_robot_obsidian_cost;
 
@@ -177,7 +180,8 @@ fn optimal_geode_output(blueprint: Blueprint, total_time: i32) -> i32 {
             ));
         }
 
-        if resources.obsidian_robots < max_obsidian_speed && time_to_obsidian_robot < time_remaining {
+        if resources.obsidian_robots < max_obsidian_speed && time_to_obsidian_robot < time_remaining
+        {
             let mut next_resources = resources.wait_time(time_to_obsidian_robot);
             next_resources.ore -= blueprint.obsidian_robot_ore_cost;
             next_resources.clay -= blueprint.obsidian_robot_clay_cost;
