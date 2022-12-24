@@ -22,6 +22,7 @@ mod day_19;
 mod day_20;
 mod day_21;
 mod day_22;
+mod day_23;
 
 fn main() -> Result<(), ()> {
     let mut args = env::args();
@@ -99,6 +100,9 @@ fn main() -> Result<(), ()> {
 
         "22a" => day_22::a(),
         "22b" => day_22::b(),
+
+        "23a" => day_23::a(),
+        "23b" => day_23::b(),
 
         other => {
             println!("Unknown day variant {:?}", other);
